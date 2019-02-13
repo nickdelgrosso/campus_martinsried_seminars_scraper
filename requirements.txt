@@ -3,4 +3,5 @@ google-auth-httplib2
 google-auth-oauthlib
 requests
 xmltodict
-beautifulsoup4.
+beautifulsoup4
+pytz
