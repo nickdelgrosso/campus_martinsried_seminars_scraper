@@ -120,10 +120,18 @@ def main(calendar_id, credentials_path):
 
 if __name__ == '__main__':
 
-    credentials_path = r'C:\Users\delgrosso\PycharmProjects\mpi_calendar'
-    calendar_id = 'osic1vum93es6r8cnms31rmh2o@group.calendar.google.com'
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Campus Martinsried Semionars Calendar Exporter.')
+    parser.add_argument('--credentials_path', default=r'C:\Users\delgrosso\PycharmProjects\mpi_calendar',
+                        help='The directory where the crediental files are found.')
+    parser.add_argument('--calendar_id', default='osic1vum93es6r8cnms31rmh2o@group.calendar.google.com',
+                        help='The google calendar id to export to.')
+
+    args = parser.parse_args()
+
     try:
-        main(credentials_path=credentials_path, calendar_id=calendar_id)
+        main(credentials_path=args.credentials_path, calendar_id=args.calendar_id)
     except Exception as e:
         print(e)
         time.sleep(10)
