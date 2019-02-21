@@ -1,6 +1,6 @@
 # Martinsried Campus Seminars Scraper + Exporter
 
-This is a small script I wrote to make a Google calendar with the seminars available on-campus.  
+This is a small Python 3 script I wrote to make a Google calendar with the seminars available on-campus.  
 It reads the seminar event list from the table on the campusmartinsried.de web page and exports them to Google Calendar.
 This script is run periodically to keep the list up-to-date. 
 
