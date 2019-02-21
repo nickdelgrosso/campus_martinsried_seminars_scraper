@@ -1,30 +1,27 @@
-from __future__ import print_function
+import time
 import datetime
 import pickle
-import os.path
+from os import path
+from collections import namedtuple
+from hashlib import sha3_256
+from datetime import datetime, timedelta
+
+import requests
+import pytz
+from bs4 import BeautifulSoup
+
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient import errors
 
-from collections import namedtuple
-import requests
-from datetime import datetime, timedelta
-import pytz
-from bs4 import BeautifulSoup
-from hashlib import md5, sha3_512, sha3_256
 
 
 Event = namedtuple('Event', 'date location speaker institute title links id')
 
-calendarId = 'osic1vum93es6r8cnms31rmh2o@group.calendar.google.com'
-credentials_file = r'C:\Users\delgrosso\PycharmProjects\mpi_calendar\credentials.json'
-tokenfile = r'C:\Users\delgrosso\PycharmProjects\mpi_calendar\token.pickle'
-
-
-munich_timezone = pytz.timezone('Europe/Berlin')
 
 def get_seminars():
+    """Yields 'Event' objects containing info from the 'campusmatrinsried.de' site."""
     r = requests.get('https://campusmartinsried.de/en/seminars/')
     if r.status_code != 200:
         raise IOError
@@ -41,73 +38,92 @@ def get_seminars():
         yield Event(date=date, speaker=speaker, institute=institute, title=title, location=location, links=links, id=id)
 
 
-# If modifying these scopes, delete the file token.pickle.
-SCOPES = ['https://www.googleapis.com/auth/calendar']
+def get_valid_google_service(credentials_path, credentials_filename='credentials.json', token_filename='token.pickle', scopes=['https://www.googleapis.com/auth/calendar']):
+    """
+    Connect to Google's servers, using either the either the credentials file token file found in 'credentials_path'.
 
-def main():
+    Args:
+        - credentials_path: The directory where the credentials.json and token.json files can be found.
+        - credentials_filename: The filename of the json file from Google with all the login info.
+        - token_filename: the pickle filename that stores the user's access and refresh tokens.
+                It is created automatically when the authorization flow completes for the first time.
+
+
+    """
+
+    credentials_file = path.join(credentials_path, credentials_filename)
+    token_file = path.join(credentials_path, token_filename)
+    credentials = None
+    # The file token.pickle
+    if path.exists(path.join(credentials_path, token_file)):
+        with open(path.join(credentials_path, token_file), 'rb') as token:
+            credentials = pickle.load(token)
+    # If there are no (valid) credentials available, let the user log in.
+    if not credentials or not credentials.valid:
+        if credentials and credentials.expired and credentials.refresh_token:
+            credentials.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(credentials_file, scopes)
+            credentials = flow.run_local_server()
+        # Save the credentials for the next run
+        with open(token_file, 'wb') as token:
+            pickle.dump(credentials, token)
+
+    service = build('calendar', 'v3', credentials=credentials)
+    return service
+
+
+def create_google_event(event, timezone='Europe/Berlin'):
+    """Returns a Google Calendar-compatible dictionary from an 'Event' object."""
+
+    dst_offset = pytz.timezone(timezone).localize(event.date).strftime('%z')
+    dst_offset = "{}:{}".format(dst_offset[:3], dst_offset[3:])  # format dst as "+HH:MM" for google calendar.
+
+    google_event = {
+        'id': event.id,
+        'summary': '{} ({})'.format(event.title, event.speaker),
+        'location': event.location,
+        'description': '{}\n{}'.format(event.institute, event.links),
+        'start': {
+            'dateTime': event.date.strftime('%Y-%m-%dT%H:%M:00{}'.format(dst_offset)),  # '2018-02-20T17:00:00+01:00'
+            'timeZone': 'Europe/Berlin',
+        },
+        'end': {
+            'dateTime': (event.date + timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:00{}'.format(dst_offset)),
+            'timeZone': 'Europe/Berlin',
+        },
+        'recurrence': [
+        ],
+        'attendees': [
+        ],
+        'reminders': {
+            'useDefault': False,
+            'overrides': [],
+        },
+    }
+    return google_event
+
+
+def main(calendar_id, credentials_path):
     """Shows basic usage of the Google Calendar API.
     Prints the start and name of the next 10 events on the user's calendar.
     """
-    creds = None
-    # The file token.pickle stores the user's access and refresh tokens, and is
-    # created automatically when the authorization flow completes for the first
-    # time.
-    if os.path.exists(tokenfile):
-        with open(tokenfile, 'rb') as token:
-            creds = pickle.load(token)
-    # If there are no (valid) credentials available, let the user log in.
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
-            creds = flow.run_local_server()
-        # Save the credentials for the next run
-        with open(tokenfile, 'wb') as token:
-            pickle.dump(creds, token)
-
-    service = build('calendar', 'v3', credentials=creds)
-
-
+    service = get_valid_google_service(credentials_path=credentials_path)
     for seminar in get_seminars():
-
         try:
-            service.events().get(calendarId=calendarId, eventId=seminar.id).execute()  # try to get event, to see if it already exists
+            service.events().get(calendarId=calendar_id, eventId=seminar.id).execute()  # try to get event, to see if it already exists
         except errors.HttpError:  # event doesn't exist yet.
-
-            dst_offset = munich_timezone.localize(seminar.date).strftime('%z')
-            dst_offset = "{}:{}".format(dst_offset[:3], dst_offset[3:])  # format dst as "+HH:MM" for google calendar.
-
-            event = {
-                'id': seminar.id,
-                'summary': '{} ({})'.format(seminar.title, seminar.speaker),
-                'location': seminar.location,
-                'description': '{}\n{}'.format(seminar.institute, seminar.links),
-                'start': {
-                    'dateTime': seminar.date.strftime('%Y-%m-%dT%H:%M:00{}'.format(dst_offset)), # '2018-02-20T17:00:00+01:00'
-                    'timeZone': 'Europe/Berlin',
-                },
-                'end': {
-                    'dateTime': (seminar.date + timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:00{}'.format(dst_offset)),
-                    'timeZone': 'Europe/Berlin',
-                },
-                'recurrence': [
-                ],
-                'attendees': [
-                ],
-                'reminders': {
-                    'useDefault': False,
-                    'overrides': [],
-                },
-            }
-            event = service.events().insert(calendarId=calendarId, body=event).execute()
-            print('event created: {}'.format(event.get('htmlLink')))
+            event = create_google_event(event=seminar)
+            inserted_event = service.events().insert(calendarId=calendar_id, body=event).execute()
+            print('event created: {}'.format(inserted_event.get('htmlLink')))
 
 
 if __name__ == '__main__':
+
+    credentials_path = r'C:\Users\delgrosso\PycharmProjects\mpi_calendar'
+    calendar_id = 'osic1vum93es6r8cnms31rmh2o@group.calendar.google.com'
     try:
-        main()
+        main(credentials_path=credentials_path, calendar_id=calendar_id)
     except Exception as e:
         print(e)
-        import time
         time.sleep(10)
